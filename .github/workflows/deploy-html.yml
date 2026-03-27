@@ -1,0 +1,66 @@
+name: Deploy HTML and notify Power Automate
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '*.html'
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  detect-deploy-notify:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Detect pushed HTML file (root only)
+        id: detect_file
+        shell: bash
+        run: |
+          FILE=$(git diff --name-only HEAD^ HEAD | grep '^[^/]*\.html$' | tail -n 1)
+
+          if [ -z "$FILE" ]; then
+            echo "No root HTML file found in this push."
+            exit 1
+          fi
+
+          FILENAME=$(basename "$FILE")
+          REPORT_URL="https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/$FILE"
+
+          echo "file_path=$FILE" >> "$GITHUB_OUTPUT"
+          echo "file_name=$FILENAME" >> "$GITHUB_OUTPUT"
+          echo "report_url=$REPORT_URL" >> "$GITHUB_OUTPUT"
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: .
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+      - name: Notify Power Automate
+        shell: bash
+        run: |
+          curl -X POST "${{ secrets.POWER_AUTOMATE_HTTP_URL }}" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "fileName": "${{ steps.detect_file.outputs.file_name }}",
+              "filePath": "${{ steps.detect_file.outputs.file_path }}",
+              "reportUrl": "${{ steps.detect_file.outputs.report_url }}",
+              "repository": "${{ github.repository }}",
+              "commitId": "${{ github.sha }}"
+            }'
