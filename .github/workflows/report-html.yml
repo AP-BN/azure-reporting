@@ -6,6 +6,7 @@ on:
       - main
     paths:
       - '*.html'
+      - '.github/workflows/deploy-html.yml'
 
 permissions:
   contents: read
@@ -16,17 +17,30 @@ jobs:
   detect-deploy-notify:
     runs-on: ubuntu-latest
 
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
         with:
           fetch-depth: 2
 
+      - name: Debug commit info
+        shell: bash
+        run: |
+          echo "GitHub SHA: ${{ github.sha }}"
+          echo "Repository: ${{ github.repository }}"
+          echo "Branch ref: ${{ github.ref }}"
+          echo "Files changed in this push:"
+          git diff --name-only HEAD^ HEAD || true
+
       - name: Detect pushed HTML file (root only)
         id: detect_file
         shell: bash
         run: |
-          FILE=$(git diff --name-only HEAD^ HEAD | grep '^[^/]*\.html$' | tail -n 1)
+          FILE=$(git diff --name-only HEAD^ HEAD | grep '^[^/]*\.html$' | tail -n 1 || true)
 
           if [ -z "$FILE" ]; then
             echo "No root HTML file found in this push."
@@ -35,6 +49,10 @@ jobs:
 
           FILENAME=$(basename "$FILE")
           REPORT_URL="https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/$FILE"
+
+          echo "Detected file: $FILE"
+          echo "Detected filename: $FILENAME"
+          echo "Report URL: $REPORT_URL"
 
           echo "file_path=$FILE" >> "$GITHUB_OUTPUT"
           echo "file_name=$FILENAME" >> "$GITHUB_OUTPUT"
@@ -55,7 +73,8 @@ jobs:
       - name: Notify Power Automate
         shell: bash
         run: |
-          curl -X POST "${{ secrets.POWER_AUTOMATE_HTTP_URL }}" \
+          echo "Calling Power Automate trigger..."
+          STATUS_CODE=$(curl -s -o response.txt -w "%{http_code}" -X POST "${{ secrets.POWER_AUTOMATE_HTTP_URL }}" \
             -H "Content-Type: application/json" \
             -d '{
               "fileName": "${{ steps.detect_file.outputs.file_name }}",
@@ -63,4 +82,13 @@ jobs:
               "reportUrl": "${{ steps.detect_file.outputs.report_url }}",
               "repository": "${{ github.repository }}",
               "commitId": "${{ github.sha }}"
-            }'
+            }')
+
+          echo "HTTP Status: $STATUS_CODE"
+          echo "Response body:"
+          cat response.txt || true
+
+          if [ "$STATUS_CODE" -lt 200 ] || [ "$STATUS_CODE" -ge 300 ]; then
+            echo "Power Automate call failed."
+            exit 1
+          fi
