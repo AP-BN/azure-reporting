@@ -58,9 +58,9 @@ jobs:
           curl -X POST "${{ secrets.POWER_AUTOMATE_HTTP_URL }}" \
             -H "Content-Type: application/json" \
             -d '{
-              "reportName": "${{ steps.detect_file.outputs.file_name }}",
+              "fileName": "${{ steps.detect_file.outputs.file_name }}",
               "filePath": "${{ steps.detect_file.outputs.file_path }}",
               "reportUrl": "${{ steps.detect_file.outputs.report_url }}",
               "repository": "${{ github.repository }}",
-              "commitSha": "${{ github.sha }}"
+              "commitId": "${{ github.sha }}"
             }'
